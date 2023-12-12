@@ -63,6 +63,7 @@ SUPPORTED_ARCHITECTURES=(
   "armv7" # Pi2, Pi3, Pi4
   "armv7l" # Pi2, Pi3, Pi4 (Raspberry Pi OS Bullseye)
   "aarch64" # Pi3, Pi4
+  "x86_64" # PC
 )
 ARCHITECTURE="$(uname -m)"
 [[ ! "${SUPPORTED_ARCHITECTURES[*]}" =~ $ARCHITECTURE ]] && (
@@ -141,20 +142,21 @@ then
     alias docker=dind
 fi
 
-sudo usermod -aG docker pi
+USER_TO_ADD=${SUDO_USER:-$(whoami)}  # Fallback to whoami if SUDO_USER is not set
+sudo usermod -aG docker $USER_TO_ADD
 
 # Stop and remove all docker if NO_CLEAN is not defined
-test $NO_CLEAN || (
-    # Check if there is any docker installed
-    [[ $(docker ps -a -q) ]] && (
-        echo "Stopping running dockers."
-        docker stop $(docker ps -a -q)
+# test $NO_CLEAN || (
+#     # Check if there is any docker installed
+#     [[ $(docker ps -a -q) ]] && (
+#         echo "Stopping running dockers."
+#         docker stop $(docker ps -a -q)
 
-        echo "Removing dockers."
-        docker rm $(docker ps -a -q)
-        docker image prune -af
-    ) || true
-)
+#         echo "Removing dockers."
+#         docker rm $(docker ps -a -q)
+#         docker image prune -af
+#     ) || true
+# )
 
 # Start installing necessary files and system configuration
 echo "Going to install blueos-docker version ${VERSION}."
@@ -162,11 +164,24 @@ echo "Going to install blueos-docker version ${VERSION}."
 echo "Downloading and installing udev rules."
 curl -fsSL $ROOT/install/udev/100.autopilot.rules -o /etc/udev/rules.d/100.autopilot.rules
 
-echo "Disabling automatic Link-local configuration in dhcpd.conf."
-# delete line if it already exists
-sed -i '/noipv4ll/d' /etc/dhcpcd.conf
-# add noipv4ll
-sed -i '$ a noipv4ll' /etc/dhcpcd.conf
+# Check if dhcpcd is installed
+if which dhcpcd >/dev/null 2>&1; then
+    # Locate dhcpcd.conf
+    DHCPCD_CONF=$(find / -name dhcpcd.conf 2>/dev/null | head -n 1)
+    
+    # Check if dhcpcd.conf exists
+    if [ ! -z "$DHCPCD_CONF" ]; then
+        echo "Disabling automatic Link-local configuration in dhcpd.conf."
+        # delete line if it already exists
+        sed -i '/noipv4ll/d' $DHCPCD_CONF
+        # add noipv4ll
+        sed -i '$ a noipv4ll' $DHCPCD_CONF
+    else
+        echo "dhcpcd.conf not found."
+    fi
+else
+    echo "dhcpcd is not installed. Skipping configuration."
+fi
 
 # Do necessary changes if running in a Raspiberry
 command -v raspi-config && (
@@ -182,15 +197,46 @@ command -v raspi-config && (
     fi
 )
 
+# Update package lists
+echo "Updating package lists..."
+apt-get update
+
+# Check if OpenSSH server is already installed
+if command -v sshd >/dev/null 2>&1; then
+  echo "OpenSSH server is already installed."
+else
+  echo "Installing OpenSSH server..."
+  apt-get install -y openssh-server
+fi
+
+# Enable and start the OpenSSH server
+echo "Enabling and starting OpenSSH server..."
+systemctl enable ssh
+systemctl start ssh
+
 echo "Downloading bootstrap"
-BLUEOS_BOOTSTRAP="bluerobotics/blueos-bootstrap:$VERSION" # Use current version
+BOOTSTRAP_NAME="blueos-bootstrap"
+BLUEOS_BOOTSTRAP="bluerobotics/$BOOTSTRAP_NAME:$VERSION" # Use current version
 BLUEOS_CORE="bluerobotics/blueos-core:$VERSION" # We don't have a stable tag yet
 BLUEOS_FACTORY="bluerobotics/blueos-core:factory" # used for "factory reset"
 
-docker pull $BLUEOS_BOOTSTRAP
-docker pull $BLUEOS_CORE
+# docker pull $BLUEOS_BOOTSTRAP
+# docker pull $BLUEOS_CORE
 # Use current release version for factory fallback
-docker image tag $BLUEOS_CORE $BLUEOS_FACTORY
+# docker image tag $BLUEOS_CORE $BLUEOS_FACTORY
+
+
+# Echo the Docker command
+echo "docker create \\"
+echo "    -t \\"
+echo "    --restart unless-stopped \\"
+echo "    --name blueos-bootstrap \\"
+echo "    --net=host \\"
+echo "    -v $HOME/.config/blueos/bootstrap:/root/.config/bootstrap \\"
+echo "    -v /var/run/docker.sock:/var/run/docker.sock \\"
+echo "    -v /var/logs/blueos:/var/logs/blueos \\"
+echo "    -e BLUEOS_CONFIG_PATH=$HOME/.config/blueos \\"
+echo "    $BLUEOS_BOOTSTRAP"
 
 # Create blueos-bootstrap container
 docker create \
@@ -204,8 +250,46 @@ docker create \
     -e BLUEOS_CONFIG_PATH=$HOME/.config/blueos \
     $BLUEOS_BOOTSTRAP
 
-# add docker entry to rc.local
-sed -i "\%^exit 0%idocker start blueos-bootstrap" /etc/rc.local || echo "Failed to add docker start on rc.local, BlueOS will not start on boot!"
+
+# Systemd service name
+SERVICE_NAME="${BOOTSTRAP_NAME}.service"
+
+# Systemd service file path
+SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
+
+# Check if systemd is installed and create a service if not then use rc.local
+if systemctl >/dev/null 2>&1; then
+    echo "Systemd is installed. Creating systemd service."
+
+    # Create the systemd service file
+    sudo bash -c "cat > $SERVICE_PATH" << EOL
+[Unit]
+Description=Start $BLUEOS_BOOTSTRAP Docker container
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker start $BOOTSTRAP_NAME
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+    # Reload systemd daemon
+    sudo systemctl daemon-reload
+
+    # Enable and start the service
+    sudo systemctl enable $SERVICE_NAME
+    sudo systemctl start $SERVICE_NAME
+
+    echo "Service created and started successfully."
+
+else
+    # add docker entry to rc.local
+    sed -i "\%^exit 0%idocker start blueos-bootstrap" /etc/rc.local || echo "Failed to add docker start on rc.local, BlueOS will not start on boot!"
+fi
 
 # Configure network settings
 ## This should be after everything, otherwise network problems can happen
@@ -229,4 +313,4 @@ echo "You can access after the reboot:"
 echo "- The computer webpage: http://blueos.local"
 echo "- The ssh client: pi@blueos.local"
 echo "System will reboot in 10 seconds."
-sleep 10 && reboot
+# sleep 10 && reboot

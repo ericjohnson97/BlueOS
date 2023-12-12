@@ -59,6 +59,7 @@ class MavlinkMessenger:
         self, message_name: Optional[str] = None, vehicle: Optional[int] = None, component: Optional[int] = 1
     ) -> Any:
         request_url = f"{self.m2r_rest_url}/vehicles/{vehicle or self.system_id}/components/{component}/messages"
+        logger.info(request_url)
         if message_name:
             request_url += f"/{message_name.upper()}"
 

@@ -77,5 +77,9 @@ RUN ln -s /usr/blueos/extensions /shortcuts/extensions
 RUN ln -s /root/.config/ardupilot-manager /shortcuts/ardupilot_logs
 RUN ln -s / /shortcuts/system_root
 
+ENV BLUEOS_USER=eric
+ENV BLUEOS_PASSWORD=password
+# ENV RUST_BACKTRACE=1
+ENV RUST_BACKTRACE=full
 # Start
 CMD /bin/bash -i /usr/bin/start-blueos-core && sleep infinity

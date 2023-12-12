@@ -18,7 +18,7 @@ from exceptions import (
     NoDefaultFirmwareAvailable,
     NoPreferredBoardSet,
 )
-from firmware.FirmwareManagement import FirmwareManager
+# from firmware.FirmwareManagement import FirmwareManager
 from flight_controller_detector.Detector import Detector as BoardDetector
 from mavlink_proxy.Endpoint import Endpoint
 from mavlink_proxy.Manager import Manager as MavlinkManager
@@ -56,9 +56,9 @@ class ArduPilotManager(metaclass=Singleton):
         self.configuration = deepcopy(self.settings.content)
         self._load_endpoints()
         self.ardupilot_subprocess: Optional[Any] = None
-        self.firmware_manager = FirmwareManager(
-            self.settings.firmware_folder, self.settings.defaults_folder, self.settings.user_firmware_folder
-        )
+        # self.firmware_manager = FirmwareManager(
+        #     self.settings.firmware_folder, self.settings.defaults_folder, self.settings.user_firmware_folder
+        # )
         self.vehicle_manager = VehicleManager()
 
         self.should_be_running = False

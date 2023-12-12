@@ -1,4 +1,5 @@
 import subprocess
+import os
 from pathlib import Path
 
 from loguru import logger
@@ -11,8 +12,8 @@ class KeyNotFound(Exception):
 def run_command_with_password(command: str, check: bool = True) -> "subprocess.CompletedProcess['str']":
     # attempt to run the command with sshpass
     # used as a fallback if the ssh key is not found
-    user = "pi"
-    password = "raspberry"
+    user = os.environ.get("BLUEOS_USER", "eric")
+    password = os.environ.get("BLUEOS_PASSWORD", "password") 
 
     return subprocess.run(
         [
@@ -34,7 +35,7 @@ def run_command_with_password(command: str, check: bool = True) -> "subprocess.C
 
 def run_command_with_ssh_key(command: str, check: bool = True) -> "subprocess.CompletedProcess['str']":
     # attempt to run the command with the ssh key
-    user = "pi"
+    user = os.environ.get("BLUEOS_USER", "pi")
     id_file = "/root/.config/.ssh/id_rsa"
     if not Path(id_file).exists():
         raise KeyNotFound

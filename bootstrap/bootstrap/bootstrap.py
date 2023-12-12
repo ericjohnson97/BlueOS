@@ -10,6 +10,7 @@ from warnings import warn
 
 import docker
 import requests
+import shlex
 from loguru import logger
 
 
@@ -166,6 +167,32 @@ class Bootstrapper:
         privileged = image["privileged"]
         network = image["network"]
 
+        # Generate the equivalent Docker command for debugging
+        cmd_parts = ["docker run"]
+
+        if binds:
+            for src, dest in binds.items():
+                if src is None or dest is None:
+                    warn(f"Skipping invalid volume binding: src={src}, dest={dest}")
+                    continue
+                if not isinstance(src, (str, bytes)) or not isinstance(dest, (str, bytes)):
+                    warn(f"Skipping non-string volume binding: src={src}, dest={dest}")
+                    continue
+                cmd_parts.append(f"-v {shlex.quote(str(src))}:{shlex.quote(str(dest))}")
+
+
+        if privileged:
+            cmd_parts.append("--privileged")
+
+        if network:
+            cmd_parts.append(f"--network={network}")
+
+        cmd_parts.append(f"--name=blueos-{component_name}")
+        cmd_parts.append(docker_name)
+
+        docker_cmd = " ".join(cmd_parts)
+        logger.info(f"Equivalent Docker command: {docker_cmd}")
+
         if not self.image_is_available_locally(image_name, image_version):
             try:
                 self.pull(component_name)
@@ -240,11 +267,11 @@ class Bootstrapper:
             for image in self.read_config_file():
                 # Start image if it's not running
                 if not self.is_running(image):
-                    try:
-                        if self.start(image):
-                            logger.warning(f"{image} is not running, starting..")
-                    except Exception as error:
-                        logger.error(f"error: {type(error)}: {error}, retrying...")
+                    # try:
+                    if self.start(image):
+                        logger.warning(f"{image} is not running, starting..")
+                    # except Exception as error:
+                    #     logger.error(f"error: {type(error)}: {error}, retrying...")
 
                 if image != Bootstrapper.SETTINGS_NAME_CORE:
                     continue

@@ -1,0 +1,1 @@
+docker build -t bluerobotics/blueos-core:factory . --build-arg VITE_APP_GIT_DESCRIBE=$(git describe --long --always --dirty --all) --build-arg GIT_DESCRIBE_TAGS=$(git describe --tags --long --always)
